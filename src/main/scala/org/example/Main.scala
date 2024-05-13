@@ -1,8 +1,7 @@
 package org.example
 
-import org.apache.spark.sql.catalyst.dsl.expressions.{DslAttr, StringToAttributeConversionHelper}
-import org.apache.spark.sql.functions.{avg, col, when}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions.{avg, col, desc}
+import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 
 object Main {
 
@@ -10,6 +9,7 @@ object Main {
   val googleplaystoreUserReviewsFile = "data/googleplaystore_user_reviews.csv"
 
   def main(args: Array[String]): Unit = {
+    System.setProperty("hadoop.home.dir", "")
     val spark = SparkSession.builder()
       .master("local[1]")
       .appName("Challenge")
@@ -17,7 +17,8 @@ object Main {
 
     // Load files
     val gpsUserReviewsDF = loadFileDF(spark, googleplaystoreUserReviewsFile)
-//    gpsUserReviewsDF.show(5, false)
+    val gpsDF = loadFileDF(spark, googleplaystoreFile)
+    gpsDF.show(5, false)
 
     // Part 1
     val cleanGPSUserReviewsDF = gpsUserReviewsDF
@@ -30,6 +31,19 @@ object Main {
     df_1.show(5, false)
 
 
+    // Part 2
+    val cleanGPSDF = gpsDF
+      .withColumn("Rating", col("Rating").cast("double"))
+      .na.fill(0, Seq("Rating"))
+//    val cleanGPSDF = cleanDF(gpsDF, "Rating", "Double", 0.0)
+    val df_2 = cleanGPSDF
+      .filter(col("Rating") >= 4.0)
+      .sort(desc("Rating"))
+    df_2.show(5, false)
+
+//    saveDF(df_2, "output/best_apps.csv")
+
+
     spark.stop()
   }
 
@@ -39,9 +53,23 @@ object Main {
       .option("header", "true")
       .option("quote", "\"")
       .option("escape", "\"")
+      .option("mode", "DROPMALFORMED")
       .csv(path)
   }
 
+  def saveDF(df: DataFrame, filename: String): Unit = {
+    df.write
+      .option("header", "true")
+      .option("delimiter", "§")
+      .mode(SaveMode.Overwrite)
+      .csv(filename)
+  }
+
+  // Pensar se faz sentido
+  def cleanDF(df: DataFrame, column: String, cast: String, value: Double): DataFrame = {
+    df.withColumn(column, col(column).cast(cast))
+      .na.fill(value, Seq(column))
+  }
 
 
 }
