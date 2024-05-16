@@ -30,6 +30,7 @@ object Main {
       .groupBy("App")
       .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
 
+    println("Part 1")
     df_1.show(5, false)
     df_1.printSchema()
     println(df_1.count())
@@ -44,6 +45,7 @@ object Main {
       .filter(col("Rating") >= 4.0)
       .sort(desc("Rating"))
 
+    println("Part 2")
     df_2.show(5, false)
 
 //    saveDF(df_2, "output/best_apps.csv")
@@ -129,14 +131,30 @@ object Main {
     val formatAndroidVersionDF = formatCurrentVersionDF
       .withColumn("Minimum_Android_Version", when(col("Minimum_Android_Version") === "NaN", null).otherwise(col("Minimum_Android_Version")))
 
-    val reorderColumnsDF = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
+    val df_3 = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
       "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version")
 
-    reorderColumnsDF.show(5, false)
-    reorderColumnsDF.printSchema()
-    println(reorderColumnsDF.count())
+    println("Part 3")
+    df_3.show(5, false)
+    df_3.printSchema()
+    println(df_3.count())
 
 
+    // Part 4
+    val auxDF1 = df_1
+      .withColumnRenamed("App", "AppRemove")
+
+    val mergeDF3WithDF1 = df_3
+      .join(auxDF1, df_3("App") === auxDF1("AppRemove"), "left_outer")
+      .drop("AppRemove")
+
+    println("Part 4")
+    mergeDF3WithDF1.show(5, false)
+    mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
+    mergeDF3WithDF1.printSchema()
+    println(mergeDF3WithDF1.count())
+
+    // To do: save file
 
     spark.stop()
   }
