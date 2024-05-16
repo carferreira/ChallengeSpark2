@@ -1,8 +1,9 @@
 package org.example
 
+//import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions.{array_distinct, avg, col, collect_list, date_format, desc, regexp_replace, row_number, split, to_timestamp, udf, when}
-import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.functions.{array_distinct, avg, col, collect_list, count, date_format, desc, explode, regexp_replace, row_number, split, to_timestamp, udf, when}
+import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 
 object Main {
 
@@ -153,6 +154,28 @@ object Main {
     mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
     mergeDF3WithDF1.printSchema()
     println(mergeDF3WithDF1.count())
+
+    // To do: save file
+
+
+    // Part 5
+    val divideDF3 = mergeDF3WithDF1
+      .withColumn("Genres", explode(col("Genres")))
+      .select(col("App"), col("Genres"), col("Rating"), col("Average_Sentiment_Polarity"))
+    //divideDF3.filter(col("App") === "Sandbox - Color by Number Coloring Pages").show(5, false)
+
+    val df_4 = divideDF3.groupBy("Genres")
+      .agg(
+        count("App").alias("Number_of_Apps"),
+        avg("Rating").alias("Average_Rating"),
+        avg("Average_Sentiment_Polarity").alias("Average_Sentiment_Polarity")
+      )
+      .withColumnRenamed("Genres", "Genre")
+
+    println("Part 5")
+    df_4.show(5, false)
+    df_4.printSchema()
+    println(df_4.count())
 
     // To do: save file
 
