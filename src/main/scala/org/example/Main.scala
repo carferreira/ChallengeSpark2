@@ -1,7 +1,8 @@
 package org.example
 
-import org.apache.spark.sql.functions.{avg, col, desc}
-import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.{array_distinct, avg, col, collect_list, date_format, desc, regexp_replace, row_number, split, to_timestamp, udf, when}
+import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
 
 object Main {
 
@@ -18,7 +19,7 @@ object Main {
     // Load files
     val gpsUserReviewsDF = loadFileDF(spark, googleplaystoreUserReviewsFile)
     val gpsDF = loadFileDF(spark, googleplaystoreFile)
-    gpsDF.show(5, false)
+    //gpsDF.show(5, false)
 
     // Part 1
     val cleanGPSUserReviewsDF = gpsUserReviewsDF
@@ -28,20 +29,113 @@ object Main {
     val df_1 = cleanGPSUserReviewsDF
       .groupBy("App")
       .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
+
     df_1.show(5, false)
+    df_1.printSchema()
+    println(df_1.count())
 
 
     // Part 2
     val cleanGPSDF = gpsDF
       .withColumn("Rating", col("Rating").cast("double"))
       .na.fill(0, Seq("Rating"))
-//    val cleanGPSDF = cleanDF(gpsDF, "Rating", "Double", 0.0)
+
     val df_2 = cleanGPSDF
       .filter(col("Rating") >= 4.0)
       .sort(desc("Rating"))
+
     df_2.show(5, false)
 
 //    saveDF(df_2, "output/best_apps.csv")
+
+
+    // Part 3
+    val partitionByApp = Window
+      .partitionBy("App")
+
+    val addRowNumberDF = gpsDF
+      .withColumn("row_number", row_number().over(partitionByApp.orderBy(col("Reviews").desc)))
+
+    val withoutAppDuplicatesDF = addRowNumberDF
+      .filter(col("row_number") === 1)
+      .drop("row_number", "Category")
+
+    val categoriesDF = gpsDF
+      .select("App", "Category")
+      .withColumn("Categories", array_distinct(collect_list("Category").over(partitionByApp)))
+      .dropDuplicates("App")
+      .withColumnRenamed("App", "AppRemove")
+      .drop("Category")
+
+    val joinDF = withoutAppDuplicatesDF
+      .join(categoriesDF, withoutAppDuplicatesDF("App") === categoriesDF("AppRemove"), "left_outer")
+      .drop("AppRemove")
+
+    val renameColumnsDF = joinDF
+      .withColumnRenamed("Content Rating", "Content_Rating")
+      .withColumnRenamed("Last Updated", "Last_Updated")
+      .withColumnRenamed("Current Ver", "Current_Version")
+      .withColumnRenamed("Android Ver", "Minimum_Android_Version")
+    //renameColumnsDF.show(5, false)
+
+    // Format Rating
+    val formatRatingDF = renameColumnsDF
+      .withColumn("Rating", col("Rating").cast("double"))
+      .withColumn("Rating", when(col("Rating") === "NaN", null).otherwise(col("Rating")))
+
+    // Format Reviews
+    val formatReviewsDF = formatRatingDF
+      .withColumn("Reviews", col("Reviews").cast("long")).na.fill(0, Seq("Reviews"))
+
+    // Format Size
+    val sizeToMBUDF = udf((size: String) => sizeToMB(size).getOrElse(null.asInstanceOf[Double]))
+
+    val formatSizeDF = formatReviewsDF
+      .withColumn("size_mb", sizeToMBUDF(col("Size")).cast("double"))
+      .withColumn("size_mb2", when(col("size_mb") === 0.0, null).otherwise(col("size_mb")))
+      .drop("Size", "size_mb")
+      .withColumnRenamed("size_mb2", "Size")
+
+    // Format Installs
+    val formatInstallsDF = formatSizeDF
+      .withColumn("Installs", when(col("Installs") === "NaN", null).otherwise(col("Installs")))
+
+    // Format Type
+    val formatTypeDF = formatInstallsDF
+      .withColumn("Type", when(col("Type") === "NaN", null).otherwise(col("Type")))
+
+    // Format Price
+    val formatPriceDF = formatTypeDF
+      .withColumn("Price", regexp_replace(col("Price"), "\\$", "").cast("double") * 0.9)
+      .withColumn("Price", when(col("Price") === "NaN", null).otherwise(col("Price")))
+
+    // Format Content Rating
+    val formatContentRatingDF = formatPriceDF
+      .withColumn("Content_Rating", when(col("Content_Rating") === "NaN", null).otherwise(col("Content_Rating")))
+
+    // Format Genres
+    val formatGenresDF = formatContentRatingDF
+      .withColumn("Genres", split(col("Genres"), ";"))
+
+    // Format Last Updated
+    val formatLastUpdatedDF = formatGenresDF
+      .withColumn("Last_Updated", date_format(to_timestamp(col("Last_Updated"), "MMMM d, yyyy"), "yyyy-MM-dd HH:mm:ss").cast("timestamp"))
+
+    // Format Current Version
+    val formatCurrentVersionDF = formatLastUpdatedDF
+      .withColumn("Current_Version", when(col("Current_Version") === "NaN", null).otherwise(col("Current_Version")))
+
+    // Format Minimum Android Version
+    val formatAndroidVersionDF = formatCurrentVersionDF
+      .withColumn("Minimum_Android_Version", when(col("Minimum_Android_Version") === "NaN", null).otherwise(col("Minimum_Android_Version")))
+
+    val reorderColumnsDF = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
+      "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version")
+
+    reorderColumnsDF.show(5, false)
+    reorderColumnsDF.printSchema()
+    println(reorderColumnsDF.count())
+
 
 
     spark.stop()
@@ -65,11 +159,25 @@ object Main {
       .csv(filename)
   }
 
-  // Pensar se faz sentido
-  def cleanDF(df: DataFrame, column: String, cast: String, value: Double): DataFrame = {
-    df.withColumn(column, col(column).cast(cast))
-      .na.fill(value, Seq(column))
+  // Convert size
+  def sizeToMB(size: String): Option[Double] = {
+    try {
+      val numericPart = size.dropRight(1)
+      val unit = size.last.toLower
+
+      val sizeInBytes = unit match {
+        case 'k' => numericPart.toDouble * 1024
+        case 'm' => numericPart.toDouble * 1024 * 1024
+        case 'g' => numericPart.toDouble * 1024 * 1024 * 1024
+        case _ => return None
+      }
+
+      Some(sizeInBytes / (1024 * 1024))
+    } catch {
+      case _: Throwable => None
+    }
   }
 
 
 }
+
