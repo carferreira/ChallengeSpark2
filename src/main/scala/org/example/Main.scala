@@ -1,14 +1,40 @@
 package org.example
 
-//import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions.{array_distinct, avg, col, collect_list, count, date_format, desc, explode, regexp_replace, row_number, split, to_timestamp, udf, when}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 
 object Main {
 
   val googleplaystoreFile = "data/googleplaystore.csv"
   val googleplaystoreUserReviewsFile = "data/googleplaystore_user_reviews.csv"
+  val googleplaystoreSchema = StructType(
+    Array(
+      StructField("App", StringType, nullable = true),
+      StructField("Category", StringType, nullable = true),
+      StructField("Rating", DoubleType, nullable = true),
+      StructField("Reviews", LongType, nullable = true),
+      StructField("Size", StringType, nullable = true),
+      StructField("Installs", StringType, nullable = true),
+      StructField("Type", StringType, nullable = true),
+      StructField("Price", StringType, nullable = true),
+      StructField("Content Rating", StringType, nullable = true),
+      StructField("Genres", StringType, nullable = true),
+      StructField("Last Updated", StringType, nullable = true),
+      StructField("Current Ver", StringType, nullable = true),
+      StructField("Android Ver", StringType, nullable = true)
+    )
+  )
+  val googleplaystoreUserReviewsSchema = StructType (
+    Array (
+      StructField("App", StringType, nullable = true),
+      StructField("Translated_Review", StringType, nullable = true),
+      StructField("Sentiment", StringType, nullable = true),
+      StructField("Sentiment_Polarity", DoubleType, nullable = true),
+      StructField("Sentiment_Subjectivity", DoubleType, nullable = true)
+    )
+  )
 
   def main(args: Array[String]): Unit = {
     System.setProperty("hadoop.home.dir", "")
@@ -18,38 +44,43 @@ object Main {
       .getOrCreate()
 
     // Load files
-    val gpsUserReviewsDF = loadFileDF(spark, googleplaystoreUserReviewsFile)
-    val gpsDF = loadFileDF(spark, googleplaystoreFile)
+    val gpsUserReviewsDF = loadFileDF(spark, googleplaystoreUserReviewsFile, googleplaystoreUserReviewsSchema)
+    val gpsDF = loadFileDF(spark, googleplaystoreFile, googleplaystoreSchema)
     //gpsDF.show(5, false)
+    //gpsDF.printSchema()
+    //println(gpsDF.count())
+
 
     // Part 1
     val cleanGPSUserReviewsDF = gpsUserReviewsDF
-      .withColumn("Sentiment_Polarity", col("Sentiment_Polarity").cast("double"))
       .na.fill(0, Seq("Sentiment_Polarity"))
 
     val df_1 = cleanGPSUserReviewsDF
       .groupBy("App")
       .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
 
-    println("Part 1")
-    df_1.show(5, false)
-    df_1.printSchema()
-    println(df_1.count())
+    //println("Part 1")
+    //df_1.show(5, false)
+    //df_1.printSchema()
+    //println(df_1.count())
 
 
     // Part 2
     val cleanGPSDF = gpsDF
-      .withColumn("Rating", col("Rating").cast("double"))
       .na.fill(0, Seq("Rating"))
 
     val df_2 = cleanGPSDF
       .filter(col("Rating") >= 4.0)
       .sort(desc("Rating"))
 
-    println("Part 2")
-    df_2.show(5, false)
+    //println("Part 2")
+    //df_2.show(5, false)
+    //println(df_2.count())
+    //gpsDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
+    //cleanGPSDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
+    //df_2.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
 
-//    saveDF(df_2, "output/best_apps.csv")
+    //saveDF(df_2, "csv", "output/best_apps.csv", true, "§", false)
 
 
     // Part 3
@@ -83,12 +114,11 @@ object Main {
 
     // Format Rating
     val formatRatingDF = renameColumnsDF
-      .withColumn("Rating", col("Rating").cast("double"))
       .withColumn("Rating", when(col("Rating") === "NaN", null).otherwise(col("Rating")))
 
     // Format Reviews
     val formatReviewsDF = formatRatingDF
-      .withColumn("Reviews", col("Reviews").cast("long")).na.fill(0, Seq("Reviews"))
+      .na.fill(0, Seq("Reviews"))
 
     // Format Size
     val sizeToMBUDF = udf((size: String) => sizeToMB(size).getOrElse(null.asInstanceOf[Double]))
@@ -135,10 +165,12 @@ object Main {
     val df_3 = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
       "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version")
 
-    println("Part 3")
-    df_3.show(5, false)
-    df_3.printSchema()
-    println(df_3.count())
+    //println("Part 3")
+    //df_3.show(5, false)
+    //df_3.printSchema()
+    //println(df_3.count())
+    //gpsDF.filter(col("App") === "Market Update Helper").show(5, false)
+    //df_3.filter(col("App") === "Market Update Helper").show(5, false)
 
 
     // Part 4
@@ -149,13 +181,13 @@ object Main {
       .join(auxDF1, df_3("App") === auxDF1("AppRemove"), "left_outer")
       .drop("AppRemove")
 
-    println("Part 4")
-    mergeDF3WithDF1.show(5, false)
-    mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
-    mergeDF3WithDF1.printSchema()
-    println(mergeDF3WithDF1.count())
+    //println("Part 4")
+    //mergeDF3WithDF1.show(5, false)
+    //mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
+    //mergeDF3WithDF1.printSchema()
+    //println(mergeDF3WithDF1.count())
 
-    // To do: save file
+    //saveDF(mergeDF3WithDF1, "parquet", "output/googleplaystore_cleaned.parquet", compress = true)
 
 
     // Part 5
@@ -177,14 +209,15 @@ object Main {
     df_4.printSchema()
     println(df_4.count())
 
-    // To do: save file
+    //saveDF(df_4, "parquet", "output/googleplaystore_metrics.parquet", compress = true)
 
     spark.stop()
   }
 
   // Load file to a dataframe
-  def loadFileDF(spark: SparkSession, path: String): DataFrame = {
+  def loadFileDF(spark: SparkSession, path: String, schema: StructType): DataFrame = {
     spark.read
+      .schema(schema)
       .option("header", "true")
       .option("quote", "\"")
       .option("escape", "\"")
@@ -192,12 +225,15 @@ object Main {
       .csv(path)
   }
 
-  def saveDF(df: DataFrame, filename: String): Unit = {
-    df.write
-      .option("header", "true")
-      .option("delimiter", "§")
-      .mode(SaveMode.Overwrite)
-      .csv(filename)
+  def saveDF(df: DataFrame, format: String, path: String, header: Boolean = false, delimiter: String = ",", compress: Boolean = false): Unit = {
+    val writeDF = df.write.format(format)
+    if (format.equals("csv")) {
+      writeDF.option("header", header).option("delimiter", delimiter)
+    }
+    if (compress) {
+      writeDF.option("compression", "gzip")
+    }
+    writeDF.mode("overwrite").save(path)
   }
 
   // Convert size
@@ -205,14 +241,12 @@ object Main {
     try {
       val numericPart = size.dropRight(1)
       val unit = size.last.toLower
-
       val sizeInBytes = unit match {
         case 'k' => numericPart.toDouble * 1024
         case 'm' => numericPart.toDouble * 1024 * 1024
         case 'g' => numericPart.toDouble * 1024 * 1024 * 1024
         case _ => return None
       }
-
       Some(sizeInBytes / (1024 * 1024))
     } catch {
       case _: Throwable => None
