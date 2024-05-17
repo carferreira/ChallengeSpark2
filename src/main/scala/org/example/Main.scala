@@ -2,10 +2,20 @@ package org.example
 
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions.{array_distinct, avg, col, collect_list, count, date_format, desc, explode, regexp_replace, row_number, split, to_timestamp, udf, when}
-import org.apache.spark.sql.types.{DoubleType, IntegerType, LongType, StringType, StructField, StructType}
-import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+import org.apache.spark.sql.types.{DoubleType, LongType, StringType, StructField, StructType}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object Main {
+
+  /*
+   * Assumption followed:
+   *  - to load the files, schema and the DROPMALFORMED mode were used so that records with incorrect formats were
+   *    discarded. This caused records in the googleplaystore_user_reviews.csv file that had a 'nan' value in the
+   *    "Sentiment_Polarity" and "Sentiment_Subjectivity" columns and records in the googleplaystore.csv file with
+   *    missing data to be discarded;
+   *  - datatype timestamp was considered for the "Last Updated" (in googleplaystore.csv file) field instead of date
+   *    so that it would have the time.
+   */
 
   val googleplaystoreFile = "data/googleplaystore.csv"
   val googleplaystoreUserReviewsFile = "data/googleplaystore_user_reviews.csv"
