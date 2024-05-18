@@ -45,9 +45,12 @@ object Main {
       StructField("Sentiment_Subjectivity", DoubleType, nullable = true)
     )
   )
+  val bestAppsFile = "output/best_apps.csv"
+  val cleanedFile = "output/googleplaystore_cleaned.parquet"
+  val metricsFile = "output/googleplaystore_metrics.parquet"
 
   def main(args: Array[String]): Unit = {
-    System.setProperty("hadoop.home.dir", "")
+    System.setProperty("hadoop.home.dir", "C:\\hadoop-3.2.0")
     val spark = SparkSession.builder()
       .master("local[1]")
       .appName("Challenge")
@@ -69,10 +72,10 @@ object Main {
       .groupBy("App")
       .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
 
-    //println("Part 1")
-    //df_1.show(5, false)
-    //df_1.printSchema()
-    //println(df_1.count())
+    println("Part 1")
+    df_1.show(5, false)
+    df_1.printSchema()
+    println(df_1.count())
 
 
     // Part 2
@@ -83,14 +86,14 @@ object Main {
       .filter(col("Rating") >= 4.0)
       .sort(desc("Rating"))
 
-    //println("Part 2")
-    //df_2.show(5, false)
-    //println(df_2.count())
+    println("Part 2")
+    df_2.show(5, false)
+    println(df_2.count())
     //gpsDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
     //cleanGPSDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
     //df_2.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
 
-    //saveDF(df_2, "csv", "output/best_apps.csv", true, "§", false)
+    //saveDF(df_2, "csv", bestAppsFile, true, "§", false)
 
 
     // Part 3
@@ -175,10 +178,10 @@ object Main {
     val df_3 = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
       "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version")
 
-    //println("Part 3")
-    //df_3.show(5, false)
-    //df_3.printSchema()
-    //println(df_3.count())
+    println("Part 3")
+    df_3.show(5, false)
+    df_3.printSchema()
+    println(df_3.count())
     //gpsDF.filter(col("App") === "Market Update Helper").show(5, false)
     //df_3.filter(col("App") === "Market Update Helper").show(5, false)
 
@@ -191,13 +194,13 @@ object Main {
       .join(auxDF1, df_3("App") === auxDF1("AppRemove"), "left_outer")
       .drop("AppRemove")
 
-    //println("Part 4")
-    //mergeDF3WithDF1.show(5, false)
+    println("Part 4")
+    mergeDF3WithDF1.show(5, false)
     //mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
-    //mergeDF3WithDF1.printSchema()
-    //println(mergeDF3WithDF1.count())
+    mergeDF3WithDF1.printSchema()
+    println(mergeDF3WithDF1.count())
 
-    //saveDF(mergeDF3WithDF1, "parquet", "output/googleplaystore_cleaned.parquet", compress = true)
+    //saveDF(mergeDF3WithDF1, "parquet", cleanedFile, compress = true)
 
 
     // Part 5
@@ -219,7 +222,7 @@ object Main {
     df_4.printSchema()
     println(df_4.count())
 
-    //saveDF(df_4, "parquet", "output/googleplaystore_metrics.parquet", compress = true)
+    //saveDF(df_4, "parquet", metricsFile, compress = true)
 
     spark.stop()
   }
