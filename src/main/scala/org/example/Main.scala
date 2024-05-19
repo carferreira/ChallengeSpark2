@@ -14,7 +14,7 @@ object Main {
    *    "Sentiment_Polarity" and "Sentiment_Subjectivity" columns and records in the googleplaystore.csv file with
    *    missing data to be discarded;
    *  - datatype timestamp was considered for the "Last Updated" (in googleplaystore.csv file) field instead of date
-   *    so that it would have the time.
+   *    so that it would have the time (00:00:00).
    */
 
   val googleplaystoreFile = "data/googleplaystore.csv"
@@ -59,55 +59,80 @@ object Main {
     // Load files
     val gpsUserReviewsDF = loadFileDF(spark, googleplaystoreUserReviewsFile, googleplaystoreUserReviewsSchema)
     val gpsDF = loadFileDF(spark, googleplaystoreFile, googleplaystoreSchema)
-    //gpsDF.show(5, false)
-    //gpsDF.printSchema()
-    //println(gpsDF.count())
-
 
     // Part 1
-    val cleanGPSUserReviewsDF = gpsUserReviewsDF
-      .na.fill(0, Seq("Sentiment_Polarity"))
-
-    val df_1 = cleanGPSUserReviewsDF
-      .groupBy("App")
-      .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
-
+    val df_1 = part1(gpsUserReviewsDF)
     println("Part 1")
     df_1.show(5, false)
     df_1.printSchema()
     println(df_1.count())
 
-
     // Part 2
-    val cleanGPSDF = gpsDF
-      .na.fill(0, Seq("Rating"))
-
-    val df_2 = cleanGPSDF
-      .filter(col("Rating") >= 4.0)
-      .sort(desc("Rating"))
-
+    val df_2 = part2(gpsDF)
+    //saveDF(df_2, "csv", bestAppsFile, true, "§", false)
     println("Part 2")
     df_2.show(5, false)
     println(df_2.count())
-    //gpsDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
-    //cleanGPSDF.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
-    //df_2.filter(col("App") === "AG Subway Simulator Pro").show(5, false)
-
-    //saveDF(df_2, "csv", bestAppsFile, true, "§", false)
-
 
     // Part 3
+    val df_3 = part3(gpsDF)
+    println("Part 3")
+    df_3.show(5, false)
+    df_3.printSchema()
+    println(df_3.count())
+
+    // Part 4
+    val mergeDF3WithDF1 = part4(df_1, df_3)
+    //saveDF(mergeDF3WithDF1, "parquet", cleanedFile, compress = true)
+    println("Part 4")
+    mergeDF3WithDF1.show(5, false)
+    mergeDF3WithDF1.printSchema()
+    println(mergeDF3WithDF1.count())
+
+    // Part 5
+    val df_4 = part5(mergeDF3WithDF1)
+    //saveDF(df_4, "parquet", metricsFile, compress = true)
+    println("Part 5")
+    df_4.show(5, false)
+    df_4.printSchema()
+    println(df_4.count())
+
+    spark.stop()
+  }
+
+  // Part 1
+  def part1(df: DataFrame): DataFrame = {
+    val cleanGPSUserReviewsDF = df
+      .na.fill(0, Seq("Sentiment_Polarity"))
+
+    cleanGPSUserReviewsDF
+      .groupBy("App")
+      .agg(avg("Sentiment_Polarity").alias("Average_Sentiment_Polarity"))
+  }
+
+  // Part 2
+  def part2(df: DataFrame): DataFrame = {
+    val cleanGPSDF = df
+      .na.fill(0, Seq("Rating"))
+
+    cleanGPSDF
+      .filter(col("Rating") >= 4.0)
+      .sort(desc("Rating"))
+  }
+
+  // Part 3
+  def part3(df: DataFrame): DataFrame = {
     val partitionByApp = Window
       .partitionBy("App")
 
-    val addRowNumberDF = gpsDF
+    val addRowNumberDF = df
       .withColumn("row_number", row_number().over(partitionByApp.orderBy(col("Reviews").desc)))
 
     val withoutAppDuplicatesDF = addRowNumberDF
       .filter(col("row_number") === 1)
       .drop("row_number", "Category")
 
-    val categoriesDF = gpsDF
+    val categoriesDF = df
       .select("App", "Category")
       .withColumn("Categories", array_distinct(collect_list("Category").over(partitionByApp)))
       .dropDuplicates("App")
@@ -123,7 +148,6 @@ object Main {
       .withColumnRenamed("Last Updated", "Last_Updated")
       .withColumnRenamed("Current Ver", "Current_Version")
       .withColumnRenamed("Android Ver", "Minimum_Android_Version")
-    //renameColumnsDF.show(5, false)
 
     // Format Rating
     val formatRatingDF = renameColumnsDF
@@ -175,56 +199,33 @@ object Main {
     val formatAndroidVersionDF = formatCurrentVersionDF
       .withColumn("Minimum_Android_Version", when(col("Minimum_Android_Version") === "NaN", null).otherwise(col("Minimum_Android_Version")))
 
-    val df_3 = formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
+    formatAndroidVersionDF.select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type",
       "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version")
+  }
 
-    println("Part 3")
-    df_3.show(5, false)
-    df_3.printSchema()
-    println(df_3.count())
-    //gpsDF.filter(col("App") === "Market Update Helper").show(5, false)
-    //df_3.filter(col("App") === "Market Update Helper").show(5, false)
-
-
-    // Part 4
-    val auxDF1 = df_1
+  // Part 4
+  def part4(df1: DataFrame, df3: DataFrame): DataFrame = {
+    val auxDF1 = df1
       .withColumnRenamed("App", "AppRemove")
 
-    val mergeDF3WithDF1 = df_3
-      .join(auxDF1, df_3("App") === auxDF1("AppRemove"), "left_outer")
+    df3
+      .join(auxDF1, df3("App") === auxDF1("AppRemove"), "left_outer")
       .drop("AppRemove")
+  }
 
-    println("Part 4")
-    mergeDF3WithDF1.show(5, false)
-    //mergeDF3WithDF1.filter(col("App") === "Basketball Stars").show(5, false)
-    mergeDF3WithDF1.printSchema()
-    println(mergeDF3WithDF1.count())
-
-    //saveDF(mergeDF3WithDF1, "parquet", cleanedFile, compress = true)
-
-
-    // Part 5
-    val divideDF3 = mergeDF3WithDF1
+  // Part 5
+  def part5(df: DataFrame): DataFrame = {
+    val divideDF3 = df
       .withColumn("Genres", explode(col("Genres")))
       .select(col("App"), col("Genres"), col("Rating"), col("Average_Sentiment_Polarity"))
-    //divideDF3.filter(col("App") === "Sandbox - Color by Number Coloring Pages").show(5, false)
 
-    val df_4 = divideDF3.groupBy("Genres")
+    divideDF3.groupBy("Genres")
       .agg(
         count("App").alias("Number_of_Apps"),
         avg("Rating").alias("Average_Rating"),
         avg("Average_Sentiment_Polarity").alias("Average_Sentiment_Polarity")
       )
       .withColumnRenamed("Genres", "Genre")
-
-    println("Part 5")
-    df_4.show(5, false)
-    df_4.printSchema()
-    println(df_4.count())
-
-    //saveDF(df_4, "parquet", metricsFile, compress = true)
-
-    spark.stop()
   }
 
   // Load file to a dataframe
@@ -238,6 +239,7 @@ object Main {
       .csv(path)
   }
 
+  // Save file
   def saveDF(df: DataFrame, format: String, path: String, header: Boolean = false, delimiter: String = ",", compress: Boolean = false): Unit = {
     val writeDF = df.write.format(format)
     if (format.equals("csv")) {
